@@ -200,7 +200,7 @@ export abstract class AbstractWordMapWrapper {
                 };
                 if( token.strong ) tokenConverted["strong"] = token.strong;
                 if( token.lemma ) tokenConverted["lemma"] = token.lemma;
-                if( token.morph ) tokenConverted["morph"] = token.morph;   
+                if( token.morph ) tokenConverted["morph"] = token.morph;
                 return tokenConverted;
             })
         })
@@ -212,15 +212,30 @@ export abstract class AbstractWordMapWrapper {
                 };
                 if( token.strong ) tokenConverted["strong"] = token.strong;
                 if( token.lemma ) tokenConverted["lemma"] = token.lemma;
-                if( token.morph ) tokenConverted["morph"] = token.morph;   
+                if( token.morph ) tokenConverted["morph"] = token.morph;
                 return tokenConverted;
             })
         })
-   
+
         const result = {
             alignments: alignmentStashConverted,
             sourceCorpus: sourceCorpusStashConverted,
             targetCorpus: targetCorpusStashConverted,
+            opts: this.opts,
+        }
+
+        return result;
+    }
+
+    /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): {[key:string]:any}{
+        const result = {
+            alignments: [],
+            sourceCorpus: [],
+            targetCorpus: [],
             opts: this.opts,
         }
 
@@ -550,6 +565,17 @@ export abstract class BoostWordMap extends AbstractWordMapWrapper{
     }
 
     /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
+            "ratio_of_training_data": this.ratio_of_training_data,
+        };
+        return result;
+    }
+
+    /**
      * This is an abstract method which loads from a structure which is JSON-able.
      * @param data - the data to load
      */
@@ -715,6 +741,17 @@ export class PlaneWordMap extends AbstractWordMapWrapper{
         return result;
     }
 
+    /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
+            "classType": "PlaneWordMap"
+        };
+        return result;
+    }
+
     add_alignments_1( source_text: {[key: string]: Token[]}, target_text: {[key: string]: Token[]}, alignments: {[key: string]: Alignment[] }):Promise<void>{
         // In "plane" the different ways of adding are all the same.
         Object.entries(alignments).forEach(([verseKey,verse_alignments]) => this.appendAlignmentMemory( verse_alignments ) );
@@ -819,6 +856,17 @@ export class JLBoostWordMap extends BoostWordMap{
         return result;
     }
 
+    /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
+            "jlboost_model": this.jlboost_model?.save(),
+            "classType": "JLBoostWordMap"
+        };
+        return result;
+    }
 
     /**
      * This is an abstract method which loads from a structure which is JSON-able.
@@ -900,6 +948,18 @@ export class MorphJLBoostWordMap extends BoostWordMap{
     save(): { [key: string]: any } {
         const result = {
             ...super.save(),
+            "jlboost_model": this.jlboost_model?.save(),
+            "classType": "MorphJLBoostWordMap"
+        };
+        return result;
+    }
+
+    /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
             "jlboost_model": this.jlboost_model?.save(),
             "classType": "MorphJLBoostWordMap"
         };
