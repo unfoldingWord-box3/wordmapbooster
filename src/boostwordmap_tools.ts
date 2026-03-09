@@ -12,6 +12,7 @@ import Lexer,{Token} from "wordmap-lexer";
 import {is_correct_prediction, token_to_hash, updateTokenLocations} from "./wordmap_tools"; 
 import {JLBoost} from "./JLBoost";
 import { shuffleArray } from './misc_tools';
+import delay from "./delay";
 
 
 export const catboost_feature_order : string[] = [
@@ -121,6 +122,33 @@ export abstract class AbstractWordMapWrapper {
         return mapper;
     }
 
+    /**
+     * This is an abstract method which loads from a structure which is JSON-able.  Has delays to prevent slowing down UI
+     *      when loading large amounts of data
+     * @param data - the data to load
+     * @param chunkSize - how many alignments to load at a time
+     */
+    static async async_load_with_delay( data: {[key:string]:any}, chunkSize: number): Promise<AbstractWordMapWrapper>{
+        //switch on the data.classType and load the appropriate class
+        const loaders = {
+            "PlaneWordMap": PlaneWordMap,
+            "JLBoostWordMap": JLBoostWordMap,
+            "MorphJLBoostWordMap": MorphJLBoostWordMap,
+        };
+
+        // First construct it and then call specificLoad on it.
+        const MapperConstructor = loaders[data.classType];
+        if (!MapperConstructor) {
+            throw new Error(`Unknown classType: ${data.classType}`);
+        }
+
+        const mapper = new MapperConstructor(data.opts);
+        
+        await mapper.async_specificLoadWithDelay(data, chunkSize);
+
+        return mapper;
+    }
+
     constructor(opts?: {}) {
         //If opts.train_steps is not set, set it to 1000.
         if (!('train_steps' in opts)) opts["train_steps"] = 1000;
@@ -200,7 +228,7 @@ export abstract class AbstractWordMapWrapper {
                 };
                 if( token.strong ) tokenConverted["strong"] = token.strong;
                 if( token.lemma ) tokenConverted["lemma"] = token.lemma;
-                if( token.morph ) tokenConverted["morph"] = token.morph;   
+                if( token.morph ) tokenConverted["morph"] = token.morph;
                 return tokenConverted;
             })
         })
@@ -212,15 +240,30 @@ export abstract class AbstractWordMapWrapper {
                 };
                 if( token.strong ) tokenConverted["strong"] = token.strong;
                 if( token.lemma ) tokenConverted["lemma"] = token.lemma;
-                if( token.morph ) tokenConverted["morph"] = token.morph;   
+                if( token.morph ) tokenConverted["morph"] = token.morph;
                 return tokenConverted;
             })
         })
-   
+
         const result = {
             alignments: alignmentStashConverted,
             sourceCorpus: sourceCorpusStashConverted,
             targetCorpus: targetCorpusStashConverted,
+            opts: this.opts,
+        }
+
+        return result;
+    }
+
+    /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): {[key:string]:any}{
+        const result = {
+            alignments: [],
+            sourceCorpus: [],
+            targetCorpus: [],
             opts: this.opts,
         }
 
@@ -303,6 +346,56 @@ export abstract class AbstractWordMapWrapper {
 
         return this;
     }
+
+    /**
+     * This is an abstract method which loads from a structure which is JSON-able.  Has delays to prevent slowing down UI
+     *      when loading large amounts of data
+     * @param data - the data to load
+     * @param chunkSize - how many alignments to load at a time
+     */
+    async async_specificLoadWithDelay(data: any, chunkSize: number): Promise<AbstractWordMapWrapper> {
+        //opts is handled in the constructor.
+        if (chunkSize < 10) {
+            chunkSize = 10;
+        }
+
+        //load saved alignments.
+        if( "alignments" in data ){
+            for (let i = 0; i < data.alignments.length; i += chunkSize) {
+                const chunk = data.alignments.slice(i, i + chunkSize);
+                const alignmentsStashConverted = chunk.map((alignment: any) => {
+                    return new Alignment(
+                        new Ngram(alignment.s.map((t: any) => new Token(t))),
+                        new Ngram(alignment.t.map((t: any) => new Token(t)))
+                    );
+                });
+                this.appendAlignmentMemory(alignmentsStashConverted);
+                await delay(0);
+            }
+        }
+
+
+        //load saved corpus.
+        if( "sourceCorpus" in data && "targetCorpus" in data ){
+            const sourceCorpusStashConverted = data.sourceCorpus.map( (tokens :any) => {
+                return tokens.map( (token :any) => {
+                    return new Token(token);
+                });
+            });
+            await delay(0);
+            const targetCorpusStashConverted = data.targetCorpus.map( (tokens :any) => {
+                return tokens.map( (token :any) => {
+                    return new Token(token);
+                });
+            })
+            await delay(0);
+            await this.async_appendCorpusTokens( sourceCorpusStashConverted, targetCorpusStashConverted );
+            await delay(0);
+        }
+
+        return this;
+    }
+
 
     /**
      * Appends alignment memory engine.  This is protected because the add_alignments_2 or add_alignments_4 should be used instead.
@@ -550,6 +643,17 @@ export abstract class BoostWordMap extends AbstractWordMapWrapper{
     }
 
     /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
+            "ratio_of_training_data": this.ratio_of_training_data,
+        };
+        return result;
+    }
+
+    /**
      * This is an abstract method which loads from a structure which is JSON-able.
      * @param data - the data to load
      */
@@ -569,10 +673,22 @@ export abstract class BoostWordMap extends AbstractWordMapWrapper{
         return this;
     }
 
+    /**
+     * This is an abstract method which loads from a structure which is JSON-able.  Has delays to prevent slowing down UI
+     *      when loading large amounts of data
+     * @param data - the data to load
+     * @param chunkSize - how many alignments to load at a time
+     */
+    async async_specificLoadWithDelay(data: any, chunkSize: number): Promise<AbstractWordMapWrapper> {
+        await super.async_specificLoadWithDelay(data, chunkSize);
+        this.ratio_of_training_data = data["ratio_of_training_data"];
+        return this;
+    }
+
+    
     setTrainingRatio(ratio_of_training_data: number) {
         this.ratio_of_training_data = ratio_of_training_data;
     }
-
     
 
     collect_boost_training_data( source_text: {[key: string]: Token[]}, 
@@ -715,6 +831,17 @@ export class PlaneWordMap extends AbstractWordMapWrapper{
         return result;
     }
 
+    /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
+            "classType": "PlaneWordMap"
+        };
+        return result;
+    }
+
     add_alignments_1( source_text: {[key: string]: Token[]}, target_text: {[key: string]: Token[]}, alignments: {[key: string]: Alignment[] }):Promise<void>{
         // In "plane" the different ways of adding are all the same.
         Object.entries(alignments).forEach(([verseKey,verse_alignments]) => this.appendAlignmentMemory( verse_alignments ) );
@@ -819,6 +946,17 @@ export class JLBoostWordMap extends BoostWordMap{
         return result;
     }
 
+    /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
+            "jlboost_model": this.jlboost_model?.save(),
+            "classType": "JLBoostWordMap"
+        };
+        return result;
+    }
 
     /**
      * This is an abstract method which loads from a structure which is JSON-able.
@@ -836,6 +974,18 @@ export class JLBoostWordMap extends BoostWordMap{
      */
     async async_specificLoad(data: any): Promise<AbstractWordMapWrapper> {
         await super.async_specificLoad(data);
+        this.jlboost_model = JLBoost.load(data.jlboost_model);
+        return this;
+    }
+
+    /**
+     * This is an abstract method which loads from a structure which is JSON-able.  Has delays to prevent slowing down UI
+     *      when loading large amounts of data
+     * @param data - the data to load
+     * @param chunkSize - how many alignments to load at a time
+     */
+    async async_specificLoadWithDelay(data: any, chunkSize: number): Promise<AbstractWordMapWrapper> {
+        await super.async_specificLoadWithDelay(data, chunkSize);
         this.jlboost_model = JLBoost.load(data.jlboost_model);
         return this;
     }
@@ -907,6 +1057,18 @@ export class MorphJLBoostWordMap extends BoostWordMap{
     }
 
     /**
+     * Saves the model to a json-able structure without alignment data and corpus.
+     * @returns {Object}
+     */
+    saveWithoutData(): { [key: string]: any } {
+        const result = {...super.saveWithoutData(),
+            "jlboost_model": this.jlboost_model?.save(),
+            "classType": "MorphJLBoostWordMap"
+        };
+        return result;
+    }
+
+    /**
      * This is an abstract method which loads from a structure which is JSON-able.
      * @param data - the data to load
      */
@@ -926,6 +1088,17 @@ export class MorphJLBoostWordMap extends BoostWordMap{
         return this;
     }
 
+    /**
+     * This is an abstract method which loads from a structure which is JSON-able.  Has delays to prevent slowing down UI
+     *      when loading large amounts of data
+     * @param data - the data to load
+     * @param chunkSize - how many alignments to load at a time
+     */
+    async async_specificLoadWithDelay(data: any, chunkSize: number): Promise<AbstractWordMapWrapper> {
+        await super.async_specificLoadWithDelay(data, chunkSize);
+        this.jlboost_model = JLBoost.load(data.jlboost_model);
+        return this;
+    }
 
     model_score( predictions: Prediction[]):void{ 
         for( let prediction_i = 0; prediction_i < predictions.length; ++prediction_i ){
