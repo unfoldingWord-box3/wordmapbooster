@@ -355,6 +355,9 @@ export abstract class AbstractWordMapWrapper {
      */
     async async_specificLoadWithDelay(data: any, chunkSize: number): Promise<AbstractWordMapWrapper> {
         //opts is handled in the constructor.
+        if (chunkSize < 10) {
+            chunkSize = 10;
+        }
 
         //load saved alignments.
         if( "alignments" in data ){
